@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.*?>
+<?import java.lang.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.layout.AnchorPane?>
+
+<VBox maxHeight="-Infinity" maxWidth="-Infinity" minHeight="-Infinity" minWidth="-Infinity" prefHeight="400.0" prefWidth="600.0" xmlns="http://javafx.com/javafx/8" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.evanrobertcampbell.impl.controller.ChatController">
+   <children>
+      <BorderPane prefHeight="200.0" prefWidth="200.0" VBox.vgrow="ALWAYS">
+         <center>
+            <GridPane BorderPane.alignment="TOP_LEFT">
+              <columnConstraints>
+                <ColumnConstraints halignment="LEFT" hgrow="SOMETIMES" />
+                  <ColumnConstraints halignment="RIGHT" hgrow="NEVER" minWidth="-Infinity" />
+                  <ColumnConstraints halignment="RIGHT" hgrow="NEVER" minWidth="-Infinity" />
+              </columnConstraints>
+              <rowConstraints>
+                <RowConstraints minHeight="10.0" prefHeight="30.0" vgrow="SOMETIMES" />
+                  <RowConstraints maxHeight="-Infinity" minHeight="10.0" vgrow="SOMETIMES" />
+              </rowConstraints>
+               <children>
+                  <TextArea fx:id="chatLogText" editable="false" prefHeight="200.0" prefWidth="200.0" GridPane.columnSpan="2147483647" />
+                  <TextField fx:id="chatEntryText" GridPane.rowIndex="1" GridPane.valignment="BOTTOM" />
+                  <Button fx:id="chatSendButton" mnemonicParsing="false" onAction="#SendClicked" prefWidth="80.0" text="Send" GridPane.columnIndex="1" GridPane.hgrow="NEVER" GridPane.rowIndex="1" />
+                  <Button mnemonicParsing="false" onAction="#DisconnectClicked" prefWidth="80.0" text="Disconnect" GridPane.columnIndex="2" GridPane.rowIndex="1" />
+               </children>
+            </GridPane>
+         </center>
+      </BorderPane>
+   </children>
+</VBox>
