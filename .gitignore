@@ -1,5 +1,9 @@
-# Compiled class file
+# Output and Compiled class file
+bin/
 *.class
+
+# IDE user settings
+.settings/
 
 # Log file
 *.log
