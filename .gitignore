@@ -2,6 +2,9 @@
 bin/
 *.class
 
+# IDE user settings
+.settings/
+
 # Log file
 *.log
 
