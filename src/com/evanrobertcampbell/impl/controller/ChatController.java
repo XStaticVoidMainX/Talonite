@@ -84,10 +84,22 @@ public class ChatController extends BaseController implements Initializable
 	{
 		System.out.println("Send clicked");
 		
-		chatLogText.appendText(chatEntryText.getText() + "\n");
-		chatEntryText.setText("");
+		String message = chatEntryText.getText();
 		
-		chatEntryText.requestFocus();
+		if (message.trim() != "")
+		{
+			if (!message.endsWith("\n"))
+				message += "\n";
+			
+			chatLogText.appendText(message);
+			chatEntryText.setText("");
+			
+			chatEntryText.requestFocus();
+			
+			SocketSession session = (SocketSession) BaseFramework.GetSessionVariable(SessionVariableKeys.SOCKET_SESSION);
+			
+			session.pushOutgoingMessage(message);
+		}
 	}
 	
 	public void DisconnectClicked()
@@ -124,6 +136,18 @@ public class ChatController extends BaseController implements Initializable
 	@Override
 	public void pushMessage(String message)
 	{
-		chatLogText.appendText(message + "\n");
+		Platform.runLater(new Runnable()
+		{
+			@Override
+			public void run()
+			{
+				String text = message;
+				
+				if (!text.endsWith("\n"))
+					text += "\n";
+				
+				chatLogText.appendText(text);
+			}
+		});
 	}
 }
