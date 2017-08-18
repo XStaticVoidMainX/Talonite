@@ -1,11 +1,11 @@
 package com.evanrobertcampbell.talonite.net;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
-import java.net.Socket;
-import java.net.UnknownHostException;
+import java.net.ConnectException;
+import java.net.InetSocketAddress;
+import java.net.SocketException;
+import java.nio.channels.*;
+import java.text.MessageFormat;
 
 import com.evanrobertcampbell.talonite.ui.BaseFramework;
 
@@ -14,48 +14,88 @@ import com.evanrobertcampbell.talonite.ui.BaseFramework;
  */
 public class SocketClient extends SocketSession
 {
-	protected Socket socket = null;
+	//protected Socket socket = null;
+	
+	protected SocketChannel socket = null;
 	
 	protected boolean waitingForConnection = false;
+	protected boolean disconnecting = false;
 	
 	@Override
 	public void run()
 	{
-		BaseFramework.GetInstance().pushMessage("Starting client");
+		String user = (String) getProperty(SOCKETSESSION_USER);
+		String host = (String) getProperty(SOCKETSESSION_HOST);
+		int port = Integer.parseInt((String) getProperty(SOCKETSESSION_PORT));
+		
+		BaseFramework.GetInstance().pushMessage(MessageFormat.format("Attempting to connect to server: {0}:{1,number,#}", host, port));
 		
 		try
 		{
-			waitingForConnection = true;
+			InetSocketAddress address = new InetSocketAddress(host, port);
+			socket = SocketChannel.open(address);
 			
-			socket = new Socket((String) getProperty(SOCKETSESSION_HOST), Integer.parseInt((String) getProperty(SOCKETSESSION_PORT)));
+			socket.configureBlocking(false);
 			
-			waitingForConnection = false;
+			BaseFramework.GetInstance().pushMessage(MessageFormat.format("Connected to server: {0}:{1,number,#}", host, port));
 			
-			BaseFramework.GetInstance().pushMessage("Just connected to: " + socket.getRemoteSocketAddress());
+			connected = true;
 			
-			PrintWriter toServer = new PrintWriter(socket.getOutputStream(), true);
+			uiInterfaceThread.start();
 			
-			BufferedReader fromServer = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-			
-			toServer.println("Hello from " + socket.getLocalSocketAddress());
-			
-			String line = fromServer.readLine();
-			
-			BaseFramework.GetInstance().pushMessage("Client received: " + line + " from server");
-			
-			toServer.close();
-			
-			fromServer.close();
-			
-			socket.close();
-		}
-		catch (UnknownHostException e)
-		{
-			e.printStackTrace();
+			while (connected == true)
+			{
+				// Make sure socket is still alive
+				checkOpenSocket(socket);
+				
+				// Write to server
+				{
+					send(socket);
+				}
+				
+				// Make sure socket is still alive
+				checkOpenSocket(socket);
+				
+				// Read from server
+				{
+					if (receive(socket) == false)
+					{
+						disconnect();
+					}
+				}
+				
+				Thread.sleep(serverTickRate);
+			}
 		}
 		catch (IOException e)
 		{
+			// No response from server when trying to connect
+			if (e instanceof ConnectException)
+			{
+				BaseFramework.GetInstance().pushMessage("Unable to connect to server. Reason: " + e.getMessage());
+			}
+			else if (e instanceof SocketException)
+			{
+				BaseFramework.GetInstance().pushMessage("Connection error: " + e.getMessage());
+			}
+			// Exception thrown when closing application without disconnecting socket.
+			else if (e instanceof ClosedChannelException)
+			{
+				BaseFramework.GetInstance().pushMessage("Disconnected from server. Reason: " + e.getMessage());
+			}
+			// Other unknown reason for IOException
+			else
+			{
+				BaseFramework.GetInstance().pushMessage("Disconnected from server. Reason: " + e.getMessage());
+			}
+		}
+		catch (InterruptedException e)
+		{
 			e.printStackTrace();
+		}
+		finally
+		{
+			disconnect();
 		}
 	}
 
@@ -70,7 +110,11 @@ public class SocketClient extends SocketSession
 	{
 		if (socket == null)
 			return false;
-		if (socket.isClosed())
+		if (socket.isOpen() == false)
+			return false;
+		if (disconnecting)
+			return false;
+		if (connected == false)
 			return false;
 		return true;
 	}
@@ -78,19 +122,35 @@ public class SocketClient extends SocketSession
 	@Override
 	public void disconnect()
 	{
-		BaseFramework.GetInstance().pushMessage("Client: attempting to disconnect from server");
-		
-		try
+		if (disconnecting == false)
 		{
-			if (socket != null && socket.isClosed() == false)
+			disconnecting = true;
+			
+			try
 			{
-				socket.close();
+				if (socket != null && socket.isOpen() == true)
+				{
+					outMessageBuffer.add(DISCONNECT_STRING);
+					send(socket);
+					
+					socket.close();
+					
+					BaseFramework.GetInstance().pushMessage("Disconnected from server.");
+				}
 			}
-		}
-		catch (IOException e)
-		{
-			e.printStackTrace();
+			catch (IOException e)
+			{
+				// Disconnecting from socket, exception handled.
+			}
+	
+			// Stops the uiInterfaceThread
+			connected = false;
 		}
 	}
 
+	@Override
+	public boolean isHost()
+	{
+		return false;
+	}
 }

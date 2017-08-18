@@ -85,7 +85,7 @@ public class SceneManager
 		primaryStage.setScene(scene);
 		primaryStage.show();
 		
-		pushMessage("SceneManager - Loaded scene: " + sceneNames[sceneID]);
+		System.out.println("SceneManager - Loaded scene: " + sceneNames[sceneID]);
 	}
 	
 	public void loadScene(int sceneID) throws Exception

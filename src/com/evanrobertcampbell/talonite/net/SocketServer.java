@@ -1,13 +1,16 @@
 package com.evanrobertcampbell.talonite.net;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
+import java.net.BindException;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
-import java.net.Socket;
-import java.net.SocketException;
-import java.net.UnknownHostException;
+import java.nio.channels.ClosedSelectorException;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
+import java.util.Iterator;
+import java.util.Set;
 
 import com.evanrobertcampbell.talonite.ui.BaseFramework;
 
@@ -15,9 +18,10 @@ import com.evanrobertcampbell.talonite.ui.BaseFramework;
  * @author Evan Campbell
  */
 public class SocketServer extends SocketSession
-{
-	protected Socket server = null;
+{	
+	//protected SocketChannel client = null;
 	protected ServerSocket serverSocket = null;
+	protected Selector selector = null;
 	
 	protected boolean waitingForConnection = false;
 	protected boolean disconnecting = false;
@@ -25,58 +29,125 @@ public class SocketServer extends SocketSession
 	@Override
 	public void run()
 	{
+		String user = (String) getProperty(SOCKETSESSION_USER);
+		String host = (String) getProperty(SOCKETSESSION_HOST);
+		int port = Integer.parseInt((String) getProperty(SOCKETSESSION_PORT));
+		
+		// TODO : setup pooled threads with max number of connected clients.
+		int maxRemoteClients = 1;
+		
 		try
 		{
-			BaseFramework.GetInstance().pushMessage("Starting server");
+			BaseFramework.GetInstance().pushMessage("Starting Server");
 			
-			waitingForConnection = true;
+			selector = Selector.open();
 			
-			serverSocket = new ServerSocket(Integer.parseInt((String) getProperty(SOCKETSESSION_PORT)));
+			ServerSocketChannel socket = ServerSocketChannel.open();
+			InetSocketAddress address = new InetSocketAddress(host, port);
 			
-			while (true)
+			socket.bind(address);
+			
+			socket.configureBlocking(false);
+			
+			int ops = socket.validOps();
+			
+			SelectionKey key = socket.register(selector, ops);
+			
+			BaseFramework.GetInstance().pushMessage("Server waiting for new connection");
+			
+			connected = true;
+			
+			while (connected == true)
 			{
-				BaseFramework.GetInstance().pushMessage("Waiting for client on port: " + serverSocket.getLocalPort() + "...");
+				//if (selector.selectedKeys().size() < maxRemoteClients)
+				//{
+					System.out.println("Server waiting for new connection");
+					
+					selector.select();
+				//}
 				
-				server = serverSocket.accept();
+				Set<SelectionKey> keys = selector.selectedKeys();
+				Iterator<SelectionKey> keyIterator = keys.iterator();
 				
-				waitingForConnection = false;
-				
-				BaseFramework.GetInstance().pushMessage("Just connected to: " + server.getRemoteSocketAddress());
-				
-				PrintWriter toClient = new PrintWriter(server.getOutputStream(), true);
-				
-				BufferedReader fromClient = new BufferedReader(new InputStreamReader(server.getInputStream()));
-				
-				String line = fromClient.readLine();
-				
-				BaseFramework.GetInstance().pushMessage("Server received: " + line);
-				
-				toClient.println("Thank you for connecting to " + server.getLocalSocketAddress() + "\n");
+				while (keyIterator.hasNext() && connected == true)
+				{	
+					SelectionKey myKey = keyIterator.next();
+					
+					try
+					{
+						if (myKey.isAcceptable())
+						{
+							SocketChannel client = socket.accept();
+							
+							// If this is the first time through, start the worker thread.
+							if (uiInterfaceThread.isAlive() == false)
+							{
+								uiInterfaceThread.start();
+							}
+							
+							client.configureBlocking(false);
+							
+							client.register(selector, SelectionKey.OP_READ | SelectionKey.OP_WRITE);
+							
+							BaseFramework.GetInstance().pushMessage("Connection accepted: " + client.getLocalAddress());
+						}
+						else if (myKey.isReadable())
+						{
+							SocketChannel client = (SocketChannel) myKey.channel();
+	
+							if (receive(client) == false)
+							{
+								inMessageBuffer.add("Disconnected from client");
+								disconnectOneClient(myKey);
+							}
+						}
+						else if (myKey.isWritable())
+						{
+							SocketChannel client = (SocketChannel) myKey.channel();
+							send(client);
+						}
+						keyIterator.remove();
+					}
+					// Exception handling for ONE client.
+					catch (IOException e)
+					{
+						BaseFramework.GetInstance().pushMessage("Disconnected from client. Reason: " + e.getMessage());
+						disconnectOneClient(myKey);
+						keyIterator.remove();
+					}
+				}
+				Thread.sleep(serverTickRate);
 			}
-		}
-		catch (UnknownHostException e)
-		{
-			e.printStackTrace();
 		}
 		catch (IOException e)
 		{
-			// Handle SocketException on accept() when disconnecting
-			if (disconnecting == true)
+			// Port in use
+			if (e instanceof BindException)
 			{
-				BaseFramework.GetInstance().pushMessage("Server disconnected.");
+				BaseFramework.GetInstance().pushMessage("Server port is already in use! Cannot start server.");
 			}
-			// Other error
+			// Unknown / other IOException with server
 			else
 			{
 				e.printStackTrace();
 			}
 		}
-		catch (Exception e)
+		catch (InterruptedException e)
 		{
 			e.printStackTrace();
 		}
+		catch (IllegalStateException e)
+		{
+			if (e instanceof ClosedSelectorException)
+			{
+				// Handled closing the selector.
+			}
+		}
+		finally
+		{
+			disconnect();
+		}
 	}
-	
 
 	@Override
 	public boolean isWaitingForConnection()
@@ -91,47 +162,129 @@ public class SocketServer extends SocketSession
 			return false;
 		if (serverSocket.isClosed())
 			return false;
-		if (server == null)
+		if (selector == null)
 			return false;
-		if (server.isClosed())
+		if (selector.isOpen() == false)
+			return false;
+		if (isAtLeastOneClientConnected() == false)
 			return false;
 		if (disconnecting)
+			return false;
+		if (connected == false)
 			return false;
 		return true;
 	}
 
+	public boolean isAtLeastOneClientConnected()
+	{
+		Set<SelectionKey> keys = selector.selectedKeys();
+		Iterator<SelectionKey> keyIterator = keys.iterator();
+		
+		while (keyIterator.hasNext())
+		{	
+			SelectionKey myKey = keyIterator.next();
+			
+			if (myKey.isReadable() ||
+				myKey.isWritable())
+			{
+				SocketChannel socket = (SocketChannel) myKey.channel();
+				
+				try
+				{
+					checkOpenSocket(socket);
+					
+					// If we get here we have a connected socket.
+					return true;
+				}
+				catch (IOException e)
+				{
+					// We know this socket is closed.
+				}
+			}
+			keyIterator.remove();
+		}
+		return false;
+	}
+	
 	@Override
 	public void disconnect()
-	{
+	{	
 		if (disconnecting == false)
 		{
 			// Catch SocketException in IOException on accept()
 			disconnecting = true;
 			
-			BaseFramework.GetInstance().pushMessage("Server: attempting to disconnect from client");
+			BaseFramework.GetInstance().pushMessage("Server shutting down.");
+
+			// Disconnect all clients
+			Set<SelectionKey> keys = selector.keys();
 			
-			try
-			{
-				if (server != null && server.isClosed() == false)
-				{
-					server.close();
-				}
+			for (SelectionKey myKey : keys)
+			{	
+				disconnectOneClient(myKey);
 			}
-			catch (IOException e)
-			{
-				e.printStackTrace();
-			}
+			
+			// Disconnect server socket
 			try
 			{
 				if (serverSocket != null && serverSocket.isClosed() == false)
 				{
 					serverSocket.close();
+					
+					BaseFramework.GetInstance().pushMessage("Server stopped.");
 				}
 			}
 			catch (IOException e)
 			{
 				e.printStackTrace();
 			}
+			
+			// Disconnect selector
+			try
+			{
+				if (selector != null && selector.isOpen())
+				{
+					selector.close();
+				}
+			}
+			catch (IOException e)
+			{
+				e.printStackTrace();
+			}
+			
+			// Stops the uiInterfaceThread
+			connected = false;
 		}
+	}
+	
+	protected void disconnectOneClient(SelectionKey key)
+	{
+		if (key.isReadable() ||
+			key.isWritable())
+		{
+			SocketChannel client = (SocketChannel) key.channel();
+			
+			try
+			{
+				if (client != null && client.isOpen() == true)
+				{
+					outMessageBuffer.add(DISCONNECT_STRING);
+					send(client);
+					
+					client.close();
+				}
+			}
+			catch (IOException e)
+			{
+				// We know this socket is closed.
+			}
+			key.cancel();
+		}
+	}
+	
+	@Override
+	public boolean isHost()
+	{
+		return true;
 	}
 }

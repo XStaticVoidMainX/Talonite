@@ -21,7 +21,7 @@
               </rowConstraints>
                <children>
                   <TextArea fx:id="chatLogText" editable="false" prefHeight="200.0" prefWidth="200.0" GridPane.columnSpan="2147483647" />
-                  <TextField fx:id="chatEntryText" GridPane.rowIndex="1" GridPane.valignment="BOTTOM" />
+                  <TextField fx:id="chatEntryText" promptText="Press enter to send" GridPane.rowIndex="1" GridPane.valignment="BOTTOM" />
                   <Button fx:id="chatSendButton" mnemonicParsing="false" onAction="#SendClicked" prefWidth="80.0" text="Send" GridPane.columnIndex="1" GridPane.hgrow="NEVER" GridPane.rowIndex="1" />
                   <Button mnemonicParsing="false" onAction="#DisconnectClicked" prefWidth="80.0" text="Disconnect" GridPane.columnIndex="2" GridPane.rowIndex="1" />
                </children>
